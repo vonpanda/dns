@@ -267,6 +267,15 @@ func (co *Conn) ReadMsg() (*Msg, error) {
 	if t := m.IsTsig(); t != nil {
 		// Need to work on the original message p, as that was used to calculate the tsig.
 		err = TsigVerifyWithProvider(p, co.tsigProvider(), co.tsigRequestMAC, false)
+		if isPacketConn(co.Conn) {
+			// Datagram transactions do not share a running MAC.
+			co.tsigRequestMAC = ""
+		} else if err == nil {
+			// The next transaction on this TCP connection follows this response.
+			co.tsigRequestMAC = t.MAC
+		} else {
+			co.tsigRequestMAC = ""
+		}
 	}
 	return m, err
 }
@@ -343,8 +352,11 @@ func (co *Conn) Read(p []byte) (n int, err error) {
 func (co *Conn) WriteMsg(m *Msg) (err error) {
 	var out []byte
 	if t := m.IsTsig(); t != nil {
-		// Set tsigRequestMAC for the next read, although only used in zone transfers.
-		out, co.tsigRequestMAC, err = TsigGenerateWithProvider(m, co.tsigProvider(), co.tsigRequestMAC, false)
+		priorMAC := co.tsigRequestMAC
+		if isPacketConn(co.Conn) {
+			priorMAC = ""
+		}
+		out, co.tsigRequestMAC, err = TsigGenerateWithProvider(m, co.tsigProvider(), priorMAC, false)
 	} else {
 		out, err = m.Pack()
 	}

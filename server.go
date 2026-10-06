@@ -670,9 +670,17 @@ func (srv *Server) serveDNS(m []byte, w *response) {
 	w.tsigStatus = nil
 	if w.tsigProvider != nil {
 		if t := req.IsTsig(); t != nil {
-			w.tsigStatus = TsigVerifyWithProvider(m, w.tsigProvider, "", false)
+			priorMAC := ""
+			if w.tcp != nil {
+				priorMAC = w.tsigRequestMAC
+			}
+			w.tsigStatus = TsigVerifyWithProvider(m, w.tsigProvider, priorMAC, false)
 			w.tsigTimersOnly = false
-			w.tsigRequestMAC = t.MAC
+			if w.tsigStatus == nil || w.tcp == nil {
+				w.tsigRequestMAC = t.MAC
+			} else {
+				w.tsigRequestMAC = ""
+			}
 		}
 	}
 
