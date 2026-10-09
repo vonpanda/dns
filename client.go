@@ -259,14 +259,17 @@ func (co *Conn) ReadMsg() (*Msg, error) {
 
 	m := new(Msg)
 	if err := m.Unpack(p); err != nil {
+		co.tsigRequestMAC = ""
 		// If an error was returned, we still want to allow the user to use
 		// the message, but naively they can just check err if they don't want
 		// to use an erroneous message
 		return m, err
 	}
+	requestMAC := co.tsigRequestMAC
+	co.tsigRequestMAC = ""
 	if t := m.IsTsig(); t != nil {
 		// Need to work on the original message p, as that was used to calculate the tsig.
-		err = TsigVerifyWithProvider(p, co.tsigProvider(), co.tsigRequestMAC, false)
+		err = TsigVerifyWithProvider(p, co.tsigProvider(), requestMAC, false)
 	}
 	return m, err
 }
@@ -343,9 +346,11 @@ func (co *Conn) Read(p []byte) (n int, err error) {
 func (co *Conn) WriteMsg(m *Msg) (err error) {
 	var out []byte
 	if t := m.IsTsig(); t != nil {
-		// Set tsigRequestMAC for the next read, although only used in zone transfers.
-		out, co.tsigRequestMAC, err = TsigGenerateWithProvider(m, co.tsigProvider(), co.tsigRequestMAC, false)
+		// Each request starts a new TSIG transaction. Save its MAC only to
+		// authenticate the corresponding response.
+		out, co.tsigRequestMAC, err = TsigGenerateWithProvider(m, co.tsigProvider(), "", false)
 	} else {
+		co.tsigRequestMAC = ""
 		out, err = m.Pack()
 	}
 	if err != nil {
